@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive,nosnippet,noimageindex">
+<meta name="referrer" content="no-referrer">
+<title>TV</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#0b0b0f;color:#f2f2f2;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif}
+#k{position:absolute;left:50%;top:50%;width:34vw;margin-left:-17vw;transform:translateY(-50%);text-align:center}
+#k h1{font-size:1.4vw;letter-spacing:.4vw;color:#888;font-weight:normal;margin-bottom:2vw}
+#noktalar span{display:inline-block;width:2.2vw;height:2.2vw;margin:0 .6vw;border-radius:50%;border:.2vw solid #555}
+#noktalar span.dolu{background:#ffb400;border-color:#ffb400}
+#noktalar.hata{animation:salla .4s}
+@keyframes salla{25%{transform:translateX(-1vw)}75%{transform:translateX(1vw)}}
+#bilgi{font-size:1vw;color:#777;margin-top:2vw;min-height:1.5vw}
+#sil{display:inline-block;margin-top:1.5vw;font-size:1vw;color:#aaa;padding:.5vw 1.5vw;border-radius:2vw;background:rgba(255,255,255,.08);cursor:pointer}
+</style>
+</head>
+<body>
+<div id="k"><h1>PIN</h1><div id="noktalar"></div><div id="bilgi"></div><span id="sil">⌫</span></div>
+<script>
+(function(){
+var pin = '', nk = document.getElementById('noktalar'), bilgi = document.getElementById('bilgi'), mesgul = false;
+function ciz(){ var h = ''; for (var i = 0; i < 8; i++) h += "<span class='" + (i < pin.length ? 'dolu' : '') + "'></span>"; nk.innerHTML = h; }
+function b64(s){ var b = atob(s), u = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
+function str64(u){ var s = ''; for (var i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); }
+function oku(){ try { return localStorage.getItem('tvk'); } catch (e) { return null; } }
+function yaz(v){ try { if (v) localStorage.setItem('tvk', v); else localStorage.removeItem('tvk'); } catch (e) {} }
+var VERI = null;
+function veriAl(cb){
+  if (VERI) return cb(VERI);
+  var x = new XMLHttpRequest(); x.open('GET', 'veri.json?v=' + Date.now(), true);
+  x.onreadystatechange = function(){ if (x.readyState == 4) { try { VERI = JSON.parse(x.responseText); } catch (e) { VERI = null; } cb(VERI); } };
+  x.send();
+}
+function ac(key, cb){
+  veriAl(function(v){
+    if (!v) { bilgi.textContent = 'İnternet bağlantısını kontrol edin.'; return cb(false); }
+    crypto.subtle.decrypt({name: 'AES-GCM', iv: b64(v.i)}, key, b64(v.d)).then(function(d){
+      var html = new TextDecoder().decode(new Uint8Array(d));
+      cb(true); document.open(); document.write(html); document.close();
+    }, function(){ cb(false); });
+  });
+}
+function kayitliAc(){
+  var k = oku(); if (!k) { ciz(); return; }
+  bilgi.textContent = 'Açılıyor…';
+  crypto.subtle.importKey('raw', b64(k), {name: 'AES-GCM'}, false, ['decrypt']).then(function(key){
+    ac(key, function(ok){ if (!ok) { yaz(null); bilgi.textContent = ''; ciz(); } });
+  }, function(){ yaz(null); ciz(); });
+}
+function dene(){
+  mesgul = true; bilgi.textContent = 'Kontrol ediliyor…';
+  veriAl(function(v){
+    if (!v) { mesgul = false; return; }
+    crypto.subtle.importKey('raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveKey']).then(function(ana){
+      return crypto.subtle.deriveKey({name: 'PBKDF2', salt: b64(v.s), iterations: v.n, hash: 'SHA-256'}, ana, {name: 'AES-GCM', length: 256}, true, ['decrypt']);
+    }).then(function(key){
+      crypto.subtle.exportKey('raw', key).then(function(raw){
+        ac(key, function(ok){
+          if (ok) { yaz(str64(new Uint8Array(raw))); return; }
+          mesgul = false; pin = ''; ciz(); bilgi.textContent = 'PIN yanlış'; nk.className = 'hata'; setTimeout(function(){ nk.className = ''; }, 450);
+        });
+      });
+    });
+  });
+}
+function bas(r){ if (mesgul || pin.length >= 8) return; pin += r; bilgi.textContent = ''; ciz(); if (pin.length == 8) setTimeout(dene, 150); }
+document.addEventListener('keydown', function(ev){
+  var k = ev.keyCode;
+  if (k >= 48 && k <= 57) { bas(String(k - 48)); ev.preventDefault(); }
+  else if (k >= 96 && k <= 105) { bas(String(k - 96)); ev.preventDefault(); }
+  else if ((k == 8 || k == 461 || k == 27) && !mesgul) { pin = pin.slice(0, -1); ciz(); ev.preventDefault(); }
+}, true);
+document.getElementById('sil').onclick = function(){ if (!mesgul) { pin = pin.slice(0, -1); ciz(); } };
+kayitliAc();
+})();
+</script>
+</body>
+</html>
